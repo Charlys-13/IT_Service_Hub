@@ -1,1 +1,43 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>IT Service Hub Admin</title><link rel="stylesheet" href="assets/admin.css"></head><body><aside><h2>IT Service Hub</h2><a href="admin.html">Dashboard</a><a href="#admin">Administración</a><a href="#closed">Terminados</a><a href="#reports">Reportes</a><a href="#config">Configuración</a><a href="index.html">← Portal</a></aside><main><h1>Dashboard</h1><div id="kpis" class="kpis"></div><section><h2>Actividad de tickets</h2><div id="tickets"></div></section><section><h2>Reportes</h2><button id="csv">Descargar CSV</button><button onclick="print()">Imprimir / PDF</button></section><section><h2>Configuración</h2><button id="backup">Descargar respaldo</button></section></main><script src="assets/admin.js"></script></body></html>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IT Service Hub Admin</title>
+  <link rel="stylesheet" href="assets/admin.css">
+</head>
+<body>
+<aside>
+  <h2>IT Service Hub</h2>
+  <a href="#dashboard" data-view="dashboard">Dashboard</a>
+  <a href="#admin" data-view="admin">Administración</a>
+  <a href="#closed" data-view="closed">Terminados</a>
+  <a href="#reports" data-view="reports">Reportes</a>
+  <a href="#config" data-view="config">Configuración</a>
+  <a href="index.html">← Portal</a>
+</aside>
+<main>
+  <h1 id="pageTitle">Dashboard</h1>
+  <p id="adminMessage" role="status"></p>
+  <section id="dashboardView" class="view">
+    <div id="kpis" class="kpis"></div>
+    <h2>Actividad de tickets</h2><div id="dashboardTickets"></div>
+  </section>
+  <section id="adminView" class="view" hidden>
+    <h2>Administración</h2><div id="openTickets"></div>
+  </section>
+  <section id="closedView" class="view" hidden>
+    <h2>Terminados</h2><div id="closedTickets"></div>
+  </section>
+  <section id="reportsView" class="view" hidden>
+    <h2>Reportes</h2><button id="csv">Descargar CSV</button> <button onclick="print()">Imprimir / PDF</button>
+  </section>
+  <section id="configView" class="view" hidden>
+    <h2>Configuración</h2><button id="backup">Descargar respaldo</button>
+  </section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="assets/supabase-config.js"></script>
+<script src="assets/admin.js"></script>
+</body>
+</html>
