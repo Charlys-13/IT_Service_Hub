@@ -1,53 +1,11 @@
-const $ = id => document.getElementById(id);
-let tickets = [];
-const statuses = ['En proceso','En revisión','Detenido','Terminado'];
-const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-
-async function loadTickets() {
-  const { data, error } = await db.from('tickets').select('*').order('ticket_number', { ascending: false });
-  if (error) throw error; tickets = data || []; renderAll();
-}
-function row(t, editable=false) {
-  const image = t.imagen_creacion_url ? `<a href="${esc(t.imagen_creacion_url)}" target="_blank" rel="noopener">Imagen inicial</a>` : '';
-  if (!editable) return `<div class="row"><b>#${t.ticket_number}</b><span>${esc(t.problema)}<small> · ${esc(t.nombre)} · ${esc(t.propiedad)}</small></span><span>${esc(t.estatus)}</span></div>`;
-  return `<div class="row ticket-edit" data-id="${t.id}">
-    <b>#${t.ticket_number}</b><span><strong>${esc(t.problema)}</strong><small> · ${esc(t.nombre)} · ${esc(t.propiedad)} · ${esc(t.departamento)}</small><br>${esc(t.description)} ${image}</span>
-    <label>Estatus<select class="status">${statuses.map(s=>`<option ${s===t.estatus?'selected':''}>${s}</option>`).join('')}</select></label>
-    <label>Prioridad<select class="priority">${['Baja','Media','Alta','Crítica'].map(p=>`<option ${p===t.prioridad?'selected':''}>${p}</option>`).join('')}</select></label>
-    <label>Responsable<input class="assignee" value="${esc(t.responsable)}"></label>
-    <label>Solución<textarea class="solution">${esc(t.solucion)}</textarea></label>
-    <label>Imagen de cierre<input class="closingImage" type="file" accept="image/*"></label>
-    <button class="saveTicket">Guardar</button></div>`;
-}
-function renderAll() {
-  $('kpis').innerHTML = [['Total',tickets.length],...statuses.map(s=>[s,tickets.filter(t=>t.estatus===s).length])].map(x=>`<div class="kpi"><small>${x[0]}</small><b>${x[1]}</b></div>`).join('');
-  $('dashboardTickets').innerHTML = tickets.slice(0,10).map(t=>row(t)).join('') || '<p>No hay tickets.</p>';
-  $('openTickets').innerHTML = tickets.filter(t=>t.estatus!=='Terminado').map(t=>row(t,true)).join('') || '<p>No hay tickets abiertos.</p>';
-  $('closedTickets').innerHTML = tickets.filter(t=>t.estatus==='Terminado').map(t=>row(t,true)).join('') || '<p>No hay tickets terminados.</p>';
-  document.querySelectorAll('.saveTicket').forEach(b=>b.onclick=saveTicket);
-}
-async function uploadClosing(file, ticketNumber) {
-  if (!file) return null; if (file.size > 8*1024*1024) throw new Error('La imagen supera 8 MB');
-  const path=`${ticketNumber}/cierre-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
-  const { error }=await db.storage.from('ticket-images').upload(path,file,{upsert:false}); if(error) throw error;
-  return db.storage.from('ticket-images').getPublicUrl(path).data.publicUrl;
-}
-async function saveTicket(event) {
-  const card=event.target.closest('[data-id]'), id=Number(card.dataset.id), current=tickets.find(t=>t.id===id);
-  event.target.disabled=true; $('adminMessage').textContent='Guardando...';
-  try {
-    const status=card.querySelector('.status').value;
-    const changes={estatus:status, prioridad:card.querySelector('.priority').value, responsable:card.querySelector('.assignee').value.trim()||null, solucion:card.querySelector('.solution').value.trim()||null, updated_at:new Date().toISOString(), terminado_en:status==='Terminado'?(current.terminado_en||new Date().toISOString()):null};
-    const file=card.querySelector('.closingImage').files[0]; if(file) changes.imagen_terminado_url=await uploadClosing(file,current.ticket_number);
-    const {error}=await db.from('tickets').update(changes).eq('id',id); if(error) throw error;
-    $('adminMessage').textContent='Ticket actualizado.'; await loadTickets();
-  } catch(e) { console.error(e); $('adminMessage').textContent='Error: '+e.message; } finally { event.target.disabled=false; }
-}
-function dl(name,content,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click();URL.revokeObjectURL(a.href)}
-$('csv').onclick=()=>{const rows=[['Ticket','Creación','Solicitante','Propiedad','Departamento','Equipo','Problema','Descripción','Estatus','Prioridad','Responsable','Solución'],...tickets.map(t=>[t.ticket_number,t.created_at,t.nombre,t.propiedad,t.departamento,t.asset,t.problema,t.description,t.estatus,t.prioridad,t.responsable,t.solucion])];dl('tickets.csv','\ufeff'+rows.map(r=>r.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n'),'text/csv')};
-$('backup').onclick=()=>dl('respaldo.json',JSON.stringify(tickets,null,2),'application/json');
-function changeView(){const key=(location.hash||'#dashboard').slice(1);const map={dashboard:'Dashboard',admin:'Administración',closed:'Terminados',reports:'Reportes',config:'Configuración'};document.querySelectorAll('.view').forEach(v=>v.hidden=true);$(key+'View').hidden=false;$('pageTitle').textContent=map[key]||'Dashboard'}
-window.addEventListener('hashchange',changeView); changeView();
-loadTickets().catch(e=>{$('adminMessage').textContent='No se pudieron cargar los tickets: '+e.message;console.error(e)});
-// Actualización automática cuando cambia la tabla.
-db.channel('tickets-live').on('postgres_changes',{event:'*',schema:'public',table:'tickets'},()=>loadTickets()).subscribe();
+const $=id=>document.getElementById(id);let tickets=[],charts={};const ST=['En proceso','En revisión','Detenido','Terminado'];const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const fmt=v=>v?new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(v)):'';const cls=s=>({'En proceso':'process','En revisión':'review','Detenido':'stopped','Terminado':'closed','Baja':'low','Media':'medium','Alta':'high','Crítica':'critical'}[s]||'medium');
+async function load(){msg('Cargando…');const{data,error}=await db.from('tickets').select('*').order('ticket_number',{ascending:false});if(error)throw error;tickets=data||[];render();msg('');}function msg(t){$('adminMessage').textContent=t}
+function kpi(n,v,c,i){return `<div class="kpi ${c}"><div><small>${n}</small><b>${v}</b></div><span>${i}</span></div>`}function activity(t){return `<div class="activity"><b>#${t.ticket_number}</b><div><strong>${esc(t.problema)}</strong><small>${esc(t.nombre)} · ${esc(t.propiedad)} · ${fmt(t.created_at)}</small></div><span class="badge ${cls(t.estatus)}">${esc(t.estatus)}</span></div>`}
+function card(t,edit){return `<div class="ticket-card" data-id="${t.id}"><div class="ticket-head"><div><span class="folio">#${t.ticket_number}</span><h3>${esc(t.problema)}</h3></div><div><span class="badge ${cls(t.prioridad)}">${esc(t.prioridad||'Media')}</span><span class="badge ${cls(t.estatus)}">${esc(t.estatus)}</span></div></div><div class="meta"><span>Solicitante: ${esc(t.nombre)}</span><span>${esc(t.propiedad)}</span><span>${esc(t.departamento)}</span><span>${fmt(t.created_at)}</span></div><p>${esc(t.description||'Sin descripción')}</p>${t.imagen_creacion_url?`<a href="${esc(t.imagen_creacion_url)}" target="_blank">Ver imagen inicial</a>`:''}${t.imagen_terminado_url?` · <a href="${esc(t.imagen_terminado_url)}" target="_blank">Ver imagen final</a>`:''}${edit?`<div class="edit-grid"><label>Estatus<select class="status">${ST.map(s=>`<option ${s===t.estatus?'selected':''}>${s}</option>`).join('')}</select></label><label>Prioridad<select class="priority">${['Baja','Media','Alta','Crítica'].map(p=>`<option ${p===t.prioridad?'selected':''}>${p}</option>`).join('')}</select></label><label>Responsable<input class="assignee" value="${esc(t.responsable||'')}"></label><label class="wide">Solución<textarea class="solution">${esc(t.solucion||'')}</textarea></label><label class="wide">Imagen de cierre<input class="closing" type="file" accept="image/*"></label></div><button class="primary save">Guardar cambios</button>`:(t.solucion?`<div class="solution"><b>Solución</b><p>${esc(t.solucion)}</p></div>`:'')}</div>`}
+function drawCharts(){Object.values(charts).forEach(x=>x.destroy());const sd=ST.map(s=>tickets.filter(t=>t.estatus===s).length),props=['CUNQR - Hilton','CUNWA - Waldorf','Cluster'],pd=props.map(p=>tickets.filter(t=>t.propiedad===p).length);charts.a=new Chart($('statusChart'),{type:'doughnut',data:{labels:ST,datasets:[{data:sd,backgroundColor:['#2563eb','#8b5cf6','#f59e0b','#10b981'],borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});charts.b=new Chart($('propertyChart'),{type:'bar',data:{labels:['Hilton','Waldorf','Cluster'],datasets:[{data:pd,backgroundColor:['#2563eb','#7c3aed','#06b6d4'],borderRadius:8}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{precision:0}},x:{grid:{display:false}}}}})}
+function render(){const c=Object.fromEntries(ST.map(s=>[s,tickets.filter(t=>t.estatus===s).length]));$('kpis').innerHTML=kpi('Total',tickets.length,'total','◎')+kpi('En proceso',c['En proceso'],'process','↻')+kpi('En revisión',c['En revisión'],'review','◉')+kpi('Detenidos',c.Detenido,'stopped','!')+kpi('Terminados',c.Terminado,'closed','✓');$('dashboardTickets').innerHTML=tickets.slice(0,8).map(activity).join('')||'<p class="empty">No hay tickets.</p>';renderOpen();$('closedTickets').innerHTML=tickets.filter(t=>t.estatus==='Terminado').map(t=>card(t,false)).join('')||'<p class="empty">No hay tickets terminados.</p>';drawCharts()}
+function renderOpen(){const q=$('searchOpen').value.toLowerCase(),p=$('propertyFilter').value;const x=tickets.filter(t=>t.estatus!=='Terminado').filter(t=>(!p||t.propiedad===p)&&(!q||[t.ticket_number,t.nombre,t.problema,t.propiedad].join(' ').toLowerCase().includes(q)));$('openTickets').innerHTML=x.map(t=>card(t,true)).join('')||'<p class="empty">No hay resultados.</p>';document.querySelectorAll('.save').forEach(b=>b.onclick=save)}
+async function upload(file,folio){if(!file)return null;if(file.size>8*1024*1024)throw new Error('La imagen supera 8 MB');const path=`${folio}/cierre-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;const{error}=await db.storage.from('ticket-images').upload(path,file);if(error)throw error;return db.storage.from('ticket-images').getPublicUrl(path).data.publicUrl}
+async function save(e){const box=e.target.closest('[data-id]'),id=+box.dataset.id,old=tickets.find(t=>t.id===id);e.target.disabled=true;msg('Guardando…');try{const s=box.querySelector('.status').value,x={estatus:s,prioridad:box.querySelector('.priority').value,responsable:box.querySelector('.assignee').value.trim()||null,solucion:box.querySelector('.solution').value.trim()||null,updated_at:new Date().toISOString(),terminado_en:s==='Terminado'?(old.terminado_en||new Date().toISOString()):null},f=box.querySelector('.closing').files[0];if(f)x.imagen_terminado_url=await upload(f,old.ticket_number);const{error}=await db.from('tickets').update(x).eq('id',id);if(error)throw error;await load();msg('Ticket actualizado.')}catch(x){msg('Error: '+x.message)}finally{e.target.disabled=false}}
+function dl(n,c,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;a.click();URL.revokeObjectURL(a.href)}$('csv').onclick=()=>{const r=[['Ticket','Creación','Solicitante','Propiedad','Departamento','Equipo','Problema','Descripción','Estatus','Prioridad','Responsable','Solución'],...tickets.map(t=>[t.ticket_number,t.created_at,t.nombre,t.propiedad,t.departamento,t.asset,t.problema,t.description,t.estatus,t.prioridad,t.responsable,t.solucion])];dl('tickets.csv','\ufeff'+r.map(x=>x.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n'),'text/csv')};$('backup').onclick=()=>dl('respaldo.json',JSON.stringify(tickets,null,2),'application/json');$('refresh').onclick=()=>load().catch(e=>msg(e.message));$('searchOpen').oninput=$('propertyFilter').onchange=renderOpen;
+function view(){const k=(location.hash||'#dashboard').slice(1),m={dashboard:'Dashboard',admin:'Administración',closed:'Terminados',reports:'Reportes',config:'Configuración'};document.querySelectorAll('.view').forEach(v=>v.hidden=true);($(k+'View')||$('dashboardView')).hidden=false;$('pageTitle').textContent=m[k]||'Dashboard';document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('active',a.hash==='#'+k))}window.addEventListener('hashchange',view);view();load().catch(e=>msg('No se pudieron cargar los tickets: '+e.message));db.channel('tickets-live').on('postgres_changes',{event:'*',schema:'public',table:'tickets'},load).subscribe();
